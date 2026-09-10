@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/constants.dart';
 import 'data/local_database.dart';
 import 'services/supabase_sync_service.dart';
@@ -8,11 +9,18 @@ import 'screens/new_patient_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Try to initialize Supabase. Using placeholder since credentials are unknown.
+  // Load environment variables
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    debugPrint("Failed to load .env file: \$e");
+  }
+
+  // Try to initialize Supabase
   try {
     await Supabase.initialize(
-      url: 'https://YOUR_SUPABASE_URL.supabase.co',
-      anonKey: 'YOUR_SUPABASE_ANON_KEY',
+      url: dotenv.env['SUPABASE_URL'] ?? '',
+      anonKey: dotenv.env['SUPABASE_ANON_KEY'] ?? '',
     );
   } catch (e) {
     debugPrint("Supabase not initialized: \$e");
@@ -55,7 +63,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    SupabaseSyncService().startAutoSync();
     _loadDashboard();
+  }
+
+  @override
+  void dispose() {
+    SupabaseSyncService().stopAutoSync();
+    super.dispose();
   }
 
   Future<void> _loadDashboard() async {
