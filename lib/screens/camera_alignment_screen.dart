@@ -154,7 +154,7 @@ class _CameraAlignmentScreenState extends State<CameraAlignmentScreen> {
                     child: Container(
                       decoration: ShapeDecoration(
                         shape: _NeomorphicHoleShape(),
-                        color: Colors.black.withOpacity(0.6),
+                        color: Colors.black.withValues(alpha: 0.6),
                       ),
                     ),
                   ),
@@ -197,7 +197,7 @@ class _CameraAlignmentScreenState extends State<CameraAlignmentScreen> {
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 border: Border.all(color: Colors.white, width: 4),
-                                color: Colors.white.withOpacity(0.3),
+                                color: Colors.white.withValues(alpha: 0.3),
                               ),
                             ),
                           ),

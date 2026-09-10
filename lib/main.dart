@@ -206,7 +206,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(height: 20),
 
               // TODAY'S SCREENING
-              const Text('Today\\'s Screening', style: TextStyle(color: AppColors.primaryText, fontSize: 19, fontWeight: FontWeight.w800)),
+              const Text("Today's Screening", style: TextStyle(color: AppColors.primaryText, fontSize: 19, fontWeight: FontWeight.w800)),
               const SizedBox(height: 12),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,

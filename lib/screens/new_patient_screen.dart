@@ -59,7 +59,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
       backgroundColor: const Color(0xFFF5F9FF),
       body: SafeArea(
         child: SingleChildScrollView(
-          keyboardDismissMode: ScrollViewKeyboardDismissMode.onDrag,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.fromLTRB(20, 60, 20, 40),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
