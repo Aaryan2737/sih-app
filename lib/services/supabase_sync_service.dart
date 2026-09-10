@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/local_database.dart';
 import 'package:flutter/foundation.dart';
@@ -10,12 +11,23 @@ class SupabaseSyncService {
 
   bool _isSyncing = false;
   bool get isSyncing => _isSyncing;
+  Timer? _syncTimer;
+
+  void startAutoSync() {
+    // Prevent multiple timers
+    if (_syncTimer != null) return;
+    _syncTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      syncPendingPatients();
+    });
+  }
+
+  void stopAutoSync() {
+    _syncTimer?.cancel();
+    _syncTimer = null;
+  }
 
   Future<void> syncPendingPatients() async {
     if (_isSyncing) return;
-    
-    // In a real scenario we might check internet connectivity first using connectivity_plus
-    // For now we rely on the Supabase call failing if offline.
     
     _isSyncing = true;
     try {
@@ -72,6 +84,7 @@ class SupabaseSyncService {
         // Mark as synced locally
         await db.updatePatientSyncStatus(patient.id, 'synced');
       }
+      debugPrint("Auto-sync completed successfully.");
     } catch (e) {
       debugPrint("Sync Error: \$e");
     } finally {

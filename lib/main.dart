@@ -13,7 +13,7 @@ void main() async {
   try {
     await dotenv.load(fileName: ".env");
   } catch (e) {
-    debugPrint("Failed to load .env file: \$e");
+    debugPrint("Failed to load .env file: $e");
   }
 
   // Try to initialize Supabase
@@ -23,7 +23,7 @@ void main() async {
       anonKey: dotenv.env['SUPABASE_ANON_KEY'] ?? '',
     );
   } catch (e) {
-    debugPrint("Supabase not initialized: \$e");
+    debugPrint("Supabase not initialized: $e");
   }
 
   runApp(const OptiXAIApp());
@@ -250,13 +250,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Container(
                           width: 48, height: 48,
                           decoration: BoxDecoration(color: AppColors.syncCountBg, borderRadius: BorderRadius.circular(14)),
-                          child: Center(child: Text('\$_pendingSync', style: const TextStyle(color: AppColors.syncCountText, fontSize: 21, fontWeight: FontWeight.w900))),
+                          child: Center(child: Text('$_pendingSync', style: const TextStyle(color: AppColors.syncCountText, fontSize: 21, fontWeight: FontWeight.w900))),
                         ),
                       ],
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      _pendingSync == 0 ? 'No records are currently waiting for synchronization.' : '\$_pendingSync records waiting for backend synchronization.',
+                      _pendingSync == 0 ? 'No records are currently waiting for synchronization.' : '$_pendingSync records waiting for backend synchronization.',
                       style: const TextStyle(color: AppColors.secondaryText, height: 1.4),
                     ),
                     const SizedBox(height: 14),
@@ -357,7 +357,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Center(child: Text(icon, style: const TextStyle(color: AppColors.brandTeal, fontSize: 16, fontWeight: FontWeight.w800))),
           ),
           const SizedBox(height: 10),
-          Text('\$value', style: const TextStyle(color: AppColors.primaryText, fontSize: 27, fontWeight: FontWeight.w900)),
+          Text('$value', style: const TextStyle(color: AppColors.primaryText, fontSize: 27, fontWeight: FontWeight.w900)),
           const SizedBox(height: 3),
           Text(label, style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
         ],

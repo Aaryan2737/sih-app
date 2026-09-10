@@ -83,7 +83,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
       await LocalDatabase().updatePatientDrGrade(widget.patientId, _overallDrGrade!);
 
     } catch (e) {
-      debugPrint("Error running TFLite model: \$e");
+      debugPrint("Error running TFLite model: $e");
       // Simulation fallback if model not loaded
       _leftDrGrade = 1;
       _rightDrGrade = 2;
@@ -170,7 +170,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
             children: [
               const Text('Screening Result', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: Color(0xFF17324D))),
               const SizedBox(height: 4),
-              Text('\${_patient?.name ?? 'Unknown'} • \${widget.patientId}', style: const TextStyle(color: Color(0xFF718596), fontSize: 12)),
+              Text('${_patient?.name ?? 'Unknown'} • ${widget.patientId}', style: const TextStyle(color: Color(0xFF718596), fontSize: 12)),
               
               Align(
                 alignment: Alignment.centerLeft,
@@ -224,12 +224,12 @@ class _InferenceScreenState extends State<InferenceScreen> {
                     const SizedBox(height: 6),
                     Text(_getGradeLabel(_overallDrGrade!), style: const TextStyle(color: Color(0xFF17324D), fontSize: 28, fontWeight: FontWeight.w900)),
                     const SizedBox(height: 2),
-                    Text('DR Grade \$_overallDrGrade / 4', style: const TextStyle(color: Color(0xFF718596), fontSize: 11)),
+                    Text('DR Grade $_overallDrGrade / 4', style: const TextStyle(color: Color(0xFF718596), fontSize: 11)),
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 14),
                       child: Divider(color: Color(0xFFE5EBEF), height: 1),
                     ),
-                    Text('Referable DR: \${_overallDrGrade! >= 2 ? 'YES' : 'NO'}', style: const TextStyle(color: Color(0xFF17324D), fontSize: 13, fontWeight: FontWeight.w800)),
+                    Text('Referable DR: ${_overallDrGrade! >= 2 ? 'YES' : 'NO'}', style: const TextStyle(color: Color(0xFF17324D), fontSize: 13, fontWeight: FontWeight.w800)),
                   ],
                 ),
               ),
@@ -285,7 +285,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('\$eyeLabel Eye', style: const TextStyle(color: Color(0xFF17324D), fontSize: 19, fontWeight: FontWeight.w800)),
+          Text('$eyeLabel Eye', style: const TextStyle(color: Color(0xFF17324D), fontSize: 19, fontWeight: FontWeight.w800)),
           const SizedBox(height: 9),
           ClipRRect(
             borderRadius: BorderRadius.circular(13),
@@ -294,7 +294,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
           const SizedBox(height: 10),
           Text(_getGradeLabel(grade), style: const TextStyle(color: Color(0xFF17324D), fontSize: 22, fontWeight: FontWeight.w900)),
           const SizedBox(height: 2),
-          Text('DR Grade \$grade/4', style: const TextStyle(color: Color(0xFF718596), fontSize: 11)),
+          Text('DR Grade $grade/4', style: const TextStyle(color: Color(0xFF718596), fontSize: 11)),
           
           const SizedBox(height: 10),
           Container(height: 1, color: const Color(0xFFE8EDF1)),
