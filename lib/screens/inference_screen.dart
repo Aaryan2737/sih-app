@@ -205,45 +205,31 @@ class _InferenceScreenState extends State<InferenceScreen> {
 
   /// Strict TFLite inference with manual RGB extraction and ordinal dequantization.
   /// DO NOT overwrite this implementation.
+  /// Uses ONLY Uint8List — no List<int> anywhere to prevent type crashes.
   Future<InferenceResult> _runInference(Interpreter interpreter, String imagePath) async {
-    // ── Step 1: Strict Preprocessing ──
-    Uint8List flatInputBuffer = await ImagePreprocessor.preprocess(imagePath);
-    debugPrint('INPUT BUFFER LENGTH: ${flatInputBuffer.length}'); // Must strictly print 150528
+    // ── Step 1: Strict Preprocessing — returns Uint8List(150528) ──
+    Uint8List inputBuffer = await ImagePreprocessor.preprocess(imagePath);
+    debugPrint('INPUT BUFFER LENGTH: ${inputBuffer.length}'); // Must strictly print 150528
 
-    // ── Step 2: Build strictly-typed 4D input tensor [1, 224, 224, 3] ──
-    // Explicit List<List<List<List<int>>>> construction to prevent type crashes.
-    final List<List<List<List<int>>>> input = List.generate(
-      1,
-      (_) => List.generate(
-        224,
-        (y) => List.generate(
-          224,
-          (x) {
-            final int baseIdx = (y * 224 + x) * 3;
-            return <int>[
-              flatInputBuffer[baseIdx],
-              flatInputBuffer[baseIdx + 1],
-              flatInputBuffer[baseIdx + 2],
-            ];
-          },
-        ),
-      ),
-    );
+    // ── Step 2: Reshape flat Uint8List into [1, 224, 224, 3] for TFLite ──
+    // The interpreter expects the input tensor shape to match the model.
+    // We pass the raw Uint8List and let TFLite reshape via its internal tensor.
+    final input = inputBuffer.reshape([1, 224, 224, 3]);
 
-    // ── Step 3: Memory-safe output buffer ──
-    var output = List.generate(1, (i) => Uint8List(5));
+    // ── Step 3: Strictly typed output buffer — Uint8List, NOT List<int> ──
+    final List<Uint8List> outputBuffer = List<Uint8List>.generate(1, (i) => Uint8List(5));
 
     // ── Step 4: Execute TFLite ──
-    interpreter.run(input, output);
+    interpreter.run(input, outputBuffer);
     
     // Diagnostic Logging: Raw uint8 output
-    debugPrint('RAW TFLITE OUTPUT: ${output[0]}');
+    debugPrint('RAW TFLITE OUTPUT: ${outputBuffer[0]}');
 
     // ── Step 5: Dequantization (Only process the first 4 logits to match nn.Linear(1280, 4)) ──
     List<double> dequantizedFloats = [];
-    int validLogits = min(4, output[0].length);
+    int validLogits = min(4, outputBuffer[0].length);
     for (int i = 0; i < validLogits; i++) {
-      double floatVal = (output[0][i] - 149) * 0.08741736;
+      double floatVal = (outputBuffer[0][i] - 149) * 0.08741736;
       dequantizedFloats.add(floatVal);
     }
     
@@ -275,7 +261,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
     if (finalConfidence < 0.0) finalConfidence = 0.0;
 
     // State Isolation
-    return InferenceResult(grade, finalConfidence, List.from(rawProbs));
+    return InferenceResult(grade, finalConfidence, List<double>.from(rawProbs));
   }
   
   String _getGradeLabel(int grade) {
