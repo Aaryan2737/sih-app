@@ -117,10 +117,16 @@ class _InferenceScreenState extends State<InferenceScreen> {
 
     } catch (e) {
       debugPrint("Error running TFLite model: $e");
-      // Simulation fallback if model not loaded
-      _leftDiagnosis = DrDiagnosis(1, 0.762);
-      _rightDiagnosis = DrDiagnosis(2, 0.891);
+      // Show error in UI instead of mock fallback
+      _leftDiagnosis = DrDiagnosis(0, 0.0);
+      _rightDiagnosis = DrDiagnosis(0, 0.0);
       _overallDiagnosis = _rightDiagnosis; 
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('TFLite Error: $e'), backgroundColor: Colors.red),
+        );
+      }
       await LocalDatabase().updatePatientDrGrade(widget.patientId, _overallDiagnosis!.grade);
     } finally {
       if (mounted) {
@@ -139,8 +145,8 @@ class _InferenceScreenState extends State<InferenceScreen> {
     // Wrap in batch dimension: [1, 224, 224, 3]
     var input = [preprocessedImage];
 
-    // 2. Output shape [1, 4] for 4 cumulative logits
-    var output = List.generate(1, (i) => List.filled(4, 0));
+    // 2. Output shape MUST be [1, 5] to match the actual model tensor shape
+    var output = List.generate(1, (i) => List.filled(5, 0));
 
     // 3. Run inference
     interpreter.run(input, output);
@@ -155,7 +161,8 @@ class _InferenceScreenState extends State<InferenceScreen> {
     double cumulativeConfidence = 0.0;
     int activeThresholds = 0;
 
-    for (int i = 0; i < 4; i++) {
+    // Loop through all 5 logits (if the model outputs P(>=1) to P(>=5), or P(>=0) to P(>=4))
+    for (int i = 0; i < rawScores.length; i++) {
       // Dequantize (Zero Point = 149, Scale = 0.08741736)
       double logit = (rawScores[i] - 149) * 0.08741736;
       
@@ -169,6 +176,9 @@ class _InferenceScreenState extends State<InferenceScreen> {
         activeThresholds++;
       }
     }
+    
+    // If the model outputs 5 logits and all are 1.0, grade might be 5. Cap it at 4.
+    if (grade > 4) grade = 4;
 
     // 5. Calculate final confidence
     // Average the active threshold probabilities, or default to 1 - first prob if grade is 0
