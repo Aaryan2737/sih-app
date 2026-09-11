@@ -447,17 +447,25 @@ class _InferenceScreenState extends State<InferenceScreen> {
             child: Stack(
               alignment: Alignment.center,
               children: [
+                // Base Layer
                 Image.file(File(imagePath), width: double.infinity, height: 190, fit: BoxFit.cover),
+                
+                // XAI Overlay
                 if (gradCamBytes != null)
-                  Opacity(
-                    opacity: 0.6,
-                    child: Image.memory(gradCamBytes, width: double.infinity, height: 190, fit: BoxFit.cover, colorBlendMode: BlendMode.overlay),
-                  )
-                else if (isGeneratingXAI)
-                  Container(
-                    width: double.infinity, height: 190,
-                    color: Colors.black.withOpacity(0.3),
-                    child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+                  Positioned.fill(
+                    child: Opacity(
+                      opacity: 0.65,
+                      child: Image.memory(gradCamBytes, fit: BoxFit.cover, colorBlendMode: BlendMode.multiply),
+                    ),
+                  ),
+                  
+                // Loading State
+                if (isGeneratingXAI && gradCamBytes == null)
+                  Positioned.fill(
+                    child: Container(
+                      color: Colors.black.withOpacity(0.3),
+                      child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+                    ),
                   ),
               ],
             ),
