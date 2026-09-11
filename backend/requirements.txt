@@ -1,8 +1,9 @@
-fastapi
-uvicorn
-python-multipart
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch
 torchvision
 numpy
+fastapi
+uvicorn
+python-multipart
 Pillow
 grad-cam
