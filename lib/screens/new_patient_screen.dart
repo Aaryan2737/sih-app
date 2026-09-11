@@ -46,11 +46,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
     await LocalDatabase().insertPatient(patient);
 
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => CameraAlignmentScreen(patientId: patient.id),
-      ),
-    );
+    Navigator.of(context).pop();
   }
 
   @override

@@ -14,8 +14,14 @@ class ImagePreprocessor {
     img.Image? originalImage = img.decodeImage(imageBytes);
     if (originalImage == null) throw Exception("Failed to decode image");
 
-    // Crop and resize to 224x224
-    img.Image resizedImage = img.copyResizeCropSquare(originalImage, size: 224);
+    // Explicit 1:1 Center Crop
+    int cropSize = min(originalImage.width, originalImage.height);
+    int cropX = (originalImage.width - cropSize) ~/ 2;
+    int cropY = (originalImage.height - cropSize) ~/ 2;
+    img.Image croppedImage = img.copyCrop(originalImage, x: cropX, y: cropY, width: cropSize, height: cropSize);
+    
+    // Resize to 224x224
+    img.Image resizedImage = img.copyResize(croppedImage, width: 224, height: 224);
 
     // Strict RGB Pixel Extraction
     var inputBuffer = Uint8List(1 * 224 * 224 * 3);

@@ -7,6 +7,8 @@ import 'core/constants.dart';
 import 'data/local_database.dart';
 import 'services/supabase_sync_service.dart';
 import 'screens/new_patient_screen.dart';
+import 'screens/patient_list_screen.dart';
+import 'screens/camera_alignment_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -355,11 +357,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const NewPatientScreen())).then((_) => _loadDashboard());
                     }),
                     const Divider(color: AppColors.border, height: 1),
-                    _buildActionButton('◉', 'Start Screening', 'Capture fundus image', () {}),
+                    _buildActionButton('◉', 'Start Screening', 'Capture fundus image', () async {
+                      final patientId = 'DR-ANON-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+                      final patient = Patient(
+                        id: patientId,
+                        name: 'Anonymous',
+                        age: 0,
+                        gender: 'Unknown',
+                        diabetesDetails: 'Unknown',
+                        phone: '',
+                        createdAt: DateTime.now().toIso8601String(),
+                      );
+                      await LocalDatabase().insertPatient(patient);
+                      if (!context.mounted) return;
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => CameraAlignmentScreen(patientId: patientId))).then((_) => _loadDashboard());
+                    }),
                     const Divider(color: AppColors.border, height: 1),
-                    _buildActionButton('👥', 'Patient Records', 'View registered patients', () {}),
+                    _buildActionButton('👥', 'Patient Records', 'View registered patients', () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const PatientListScreen(title: 'Patient Records')));
+                    }),
                     const Divider(color: AppColors.border, height: 1),
-                    _buildActionButton('☷', 'Screening History', 'View previous screenings', () {}),
+                    _buildActionButton('☷', 'Screening History', 'View previous screenings', () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const PatientListScreen(title: 'Screening History')));
+                    }),
                   ],
                 ),
               ),
