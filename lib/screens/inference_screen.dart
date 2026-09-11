@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img;
 import 'dart:io';
@@ -92,6 +93,9 @@ class InferenceScreen extends StatefulWidget {
 
 class _InferenceScreenState extends State<InferenceScreen> {
   bool _isProcessing = true;
+  bool _isFetchingGradCam = true;
+  Uint8List? _leftGradCam;
+  Uint8List? _rightGradCam;
   InferenceResult? _leftDiagnosis;
   InferenceResult? _rightDiagnosis;
   InferenceResult? _overallDiagnosis;
@@ -101,6 +105,20 @@ class _InferenceScreenState extends State<InferenceScreen> {
   void initState() {
     super.initState();
     _loadPatientAndRun();
+  }
+
+  Future<Uint8List?> _generateGradCam(String imagePath) async {
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse('http://10.0.2.2:8000/generate_gradcam'));
+      request.files.add(await http.MultipartFile.fromPath('file', imagePath));
+      var response = await request.send();
+      if (response.statusCode == 200) {
+        return await response.stream.toBytes();
+      }
+    } catch (e) {
+      debugPrint("GradCAM Error: $e");
+    }
+    return null;
   }
 
   Future<void> _loadPatientAndRun() async {
@@ -139,6 +157,18 @@ class _InferenceScreenState extends State<InferenceScreen> {
         });
       }
       interpreter?.close();
+    }
+
+    if (mounted) {
+      final leftBytes = await _generateGradCam(widget.leftImagePath);
+      final rightBytes = await _generateGradCam(widget.rightImagePath);
+      if (mounted) {
+        setState(() {
+          _leftGradCam = leftBytes;
+          _rightGradCam = rightBytes;
+          _isFetchingGradCam = false;
+        });
+      }
     }
   }
 
@@ -292,7 +322,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
                 'Left', 
                 widget.leftImagePath, 
                 _leftDiagnosis!, 
-                heatmapPath: widget.leftHeatmapPath,
+                gradCamBytes: _leftGradCam,
                 key: const ValueKey('left_eye')
               ),
               
@@ -301,7 +331,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
                 'Right', 
                 widget.rightImagePath, 
                 _rightDiagnosis!, 
-                heatmapPath: widget.rightHeatmapPath,
+                gradCamBytes: _rightGradCam,
                 key: const ValueKey('right_eye')
               ),
               
@@ -390,7 +420,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
     );
   }
 
-  Widget _buildEyeCard(String eyeLabel, String imagePath, InferenceResult diagnosis, {String? heatmapPath, Key? key}) {
+  Widget _buildEyeCard(String eyeLabel, String imagePath, InferenceResult diagnosis, {Uint8List? gradCamBytes, Key? key}) {
     return Container(
       key: key,
       margin: const EdgeInsets.only(top: 15),
@@ -408,24 +438,19 @@ class _InferenceScreenState extends State<InferenceScreen> {
           ClipRRect(
             borderRadius: BorderRadius.circular(13),
             child: Stack(
+              alignment: Alignment.center,
               children: [
                 Image.file(File(imagePath), width: double.infinity, height: 190, fit: BoxFit.cover),
-                if (heatmapPath != null)
+                if (gradCamBytes != null)
                   Opacity(
                     opacity: 0.6,
-                    child: Image.file(File(heatmapPath), width: double.infinity, height: 190, fit: BoxFit.cover, colorBlendMode: BlendMode.overlay),
+                    child: Image.memory(gradCamBytes, width: double.infinity, height: 190, fit: BoxFit.cover, colorBlendMode: BlendMode.overlay),
                   )
-                else
-                  // Mock overlay for now
+                else if (_isFetchingGradCam)
                   Container(
                     width: double.infinity, height: 190,
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        colors: [Colors.red.withOpacity(0.4), Colors.transparent],
-                        center: const Alignment(0.2, 0.1),
-                        radius: 0.8,
-                      ),
-                    ),
+                    color: Colors.black.withOpacity(0.3),
+                    child: const Center(child: CircularProgressIndicator(color: Colors.white)),
                   ),
               ],
             ),
