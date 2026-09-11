@@ -149,7 +149,8 @@ class _InferenceScreenState extends State<InferenceScreen> {
     debugPrint('RAW TFLITE OUTPUT: $output');
 
     // 4. Parse Ordinal Logits
-    List<int> rawScores = output[0];
+    // STRICT RULE 2: Deep Copy Outputs to prevent TFLite buffer overlap
+    List<int> rawScores = List<int>.from(output[0]);
     int grade = 0;
     double cumulativeConfidence = 0.0;
     int activeThresholds = 0;
@@ -260,10 +261,22 @@ class _InferenceScreenState extends State<InferenceScreen> {
               ),
               
               // LEFT EYE CARD
-              _buildEyeCard('Left', widget.leftImagePath, _leftDiagnosis!, heatmapPath: widget.leftHeatmapPath),
+              _buildEyeCard(
+                'Left', 
+                widget.leftImagePath, 
+                _leftDiagnosis!, 
+                heatmapPath: widget.leftHeatmapPath,
+                key: const ValueKey('left_eye')
+              ),
               
               // RIGHT EYE CARD
-              _buildEyeCard('Right', widget.rightImagePath, _rightDiagnosis!, heatmapPath: widget.rightHeatmapPath),
+              _buildEyeCard(
+                'Right', 
+                widget.rightImagePath, 
+                _rightDiagnosis!, 
+                heatmapPath: widget.rightHeatmapPath,
+                key: const ValueKey('right_eye')
+              ),
               
               // OVERALL CARD
               Container(
@@ -350,8 +363,9 @@ class _InferenceScreenState extends State<InferenceScreen> {
     );
   }
 
-  Widget _buildEyeCard(String eyeLabel, String imagePath, DrDiagnosis diagnosis, {String? heatmapPath}) {
+  Widget _buildEyeCard(String eyeLabel, String imagePath, DrDiagnosis diagnosis, {String? heatmapPath, Key? key}) {
     return Container(
+      key: key,
       margin: const EdgeInsets.only(top: 15),
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
