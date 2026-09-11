@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img;
 import 'dart:io';
+import 'dart:math';
 import '../data/local_database.dart';
 
 class ImagePreprocessor {
@@ -138,29 +139,46 @@ class _InferenceScreenState extends State<InferenceScreen> {
     // Wrap in batch dimension: [1, 224, 224, 3]
     var input = [preprocessedImage];
 
-    // 2. Output shape [1, 5]
-    var output = List.generate(1, (i) => List.filled(5, 0));
+    // 2. Output shape [1, 4] for 4 cumulative logits
+    var output = List.generate(1, (i) => List.filled(4, 0));
 
     // 3. Run inference
     interpreter.run(input, output);
+    
+    // Debug raw output
+    debugPrint('RAW TFLITE OUTPUT: $output');
 
-    // 4. Find max confidence score for DR Grade
-    List<int> scores = output[0];
-    int maxIndex = 0;
-    int maxScore = scores[0];
-    for (int i = 1; i < 5; i++) {
-      if (scores[i] > maxScore) {
-        maxScore = scores[i];
-        maxIndex = i;
+    // 4. Parse Ordinal Logits
+    List<int> rawScores = output[0];
+    int grade = 0;
+    double cumulativeConfidence = 0.0;
+    int activeThresholds = 0;
+
+    for (int i = 0; i < 4; i++) {
+      // Dequantize (Zero Point = 149, Scale = 0.08741736)
+      double logit = (rawScores[i] - 149) * 0.08741736;
+      
+      // Apply Sigmoid
+      double prob = 1.0 / (1.0 + exp(-logit));
+      
+      // Sum probabilities crossing 0.5
+      if (prob >= 0.5) {
+        grade++;
+        cumulativeConfidence += prob;
+        activeThresholds++;
       }
     }
 
-    // 5. Dequantize using model's exact parameters (Zero Point = 149, Scale = 0.08741736)
-    double floatConfidence = (maxScore - 149) * 0.08741736;
-    if (floatConfidence > 1.0) floatConfidence = 1.0;
-    if (floatConfidence < 0.0) floatConfidence = 0.0;
+    // 5. Calculate final confidence
+    // Average the active threshold probabilities, or default to 1 - first prob if grade is 0
+    double finalConfidence = grade > 0 
+        ? (cumulativeConfidence / activeThresholds)
+        : (1.0 - (1.0 / (1.0 + exp(-((rawScores[0] - 149) * 0.08741736)))));
+    
+    if (finalConfidence > 1.0) finalConfidence = 1.0;
+    if (finalConfidence < 0.0) finalConfidence = 0.0;
 
-    return DrDiagnosis(maxIndex, floatConfidence);
+    return DrDiagnosis(grade, finalConfidence);
   }
   
   String _getGradeLabel(int grade) {
