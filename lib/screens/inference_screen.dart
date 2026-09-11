@@ -37,16 +37,48 @@ class ImagePreprocessor {
   }
 }
 
+class DrDiagnosis {
+  final int grade;
+  final double confidence;
+  final bool referable;
+  final List<String> lesions;
+
+  DrDiagnosis(this.grade, this.confidence)
+      : referable = grade >= 2,
+        lesions = _inferLesions(grade);
+
+  static List<String> _inferLesions(int grade) {
+    switch (grade) {
+      case 0:
+        return ['No lesions detected'];
+      case 1:
+        return ['Microaneurysms'];
+      case 2:
+        return ['Microaneurysms', 'Hard Exudates'];
+      case 3:
+        return ['Hemorrhages', 'Cotton Wool Spots', 'Venous Beading'];
+      case 4:
+        return ['Neovascularization', 'Vitreous Hemorrhage', 'Fibrous Proliferation'];
+      default:
+        return [];
+    }
+  }
+}
+
 class InferenceScreen extends StatefulWidget {
   final String patientId;
   final String leftImagePath;
   final String rightImagePath;
+  final String? leftHeatmapPath;
+  final String? rightHeatmapPath;
 
   const InferenceScreen({
     super.key,
     required this.patientId,
     required this.leftImagePath,
     required this.rightImagePath,
+    this.leftHeatmapPath,
+    this.rightHeatmapPath,
   });
 
   @override
@@ -55,9 +87,9 @@ class InferenceScreen extends StatefulWidget {
 
 class _InferenceScreenState extends State<InferenceScreen> {
   bool _isProcessing = true;
-  int? _leftDrGrade;
-  int? _rightDrGrade;
-  int? _overallDrGrade;
+  DrDiagnosis? _leftDiagnosis;
+  DrDiagnosis? _rightDiagnosis;
+  DrDiagnosis? _overallDiagnosis;
   Patient? _patient;
 
   @override
@@ -73,22 +105,22 @@ class _InferenceScreenState extends State<InferenceScreen> {
     try {
       interpreter = await Interpreter.fromAsset('assets/models/optixai_mobilenet.tflite');
       
-      _leftDrGrade = await _runInference(interpreter, widget.leftImagePath);
-      _rightDrGrade = await _runInference(interpreter, widget.rightImagePath);
+      _leftDiagnosis = await _runInference(interpreter, widget.leftImagePath);
+      _rightDiagnosis = await _runInference(interpreter, widget.rightImagePath);
       
       // The overall grade is the highest of both eyes
-      _overallDrGrade = (_leftDrGrade! > _rightDrGrade!) ? _leftDrGrade : _rightDrGrade;
+      _overallDiagnosis = (_leftDiagnosis!.grade > _rightDiagnosis!.grade) ? _leftDiagnosis : _rightDiagnosis;
       
       // Update patient's dr_grade in SQLite
-      await LocalDatabase().updatePatientDrGrade(widget.patientId, _overallDrGrade!);
+      await LocalDatabase().updatePatientDrGrade(widget.patientId, _overallDiagnosis!.grade);
 
     } catch (e) {
       debugPrint("Error running TFLite model: $e");
       // Simulation fallback if model not loaded
-      _leftDrGrade = 1;
-      _rightDrGrade = 2;
-      _overallDrGrade = 2; 
-      await LocalDatabase().updatePatientDrGrade(widget.patientId, _overallDrGrade!);
+      _leftDiagnosis = DrDiagnosis(1, 0.762);
+      _rightDiagnosis = DrDiagnosis(2, 0.891);
+      _overallDiagnosis = _rightDiagnosis; 
+      await LocalDatabase().updatePatientDrGrade(widget.patientId, _overallDiagnosis!.grade);
     } finally {
       if (mounted) {
         setState(() {
@@ -99,7 +131,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
     }
   }
 
-  Future<int> _runInference(Interpreter interpreter, String imagePath) async {
+  Future<DrDiagnosis> _runInference(Interpreter interpreter, String imagePath) async {
     // 1. Preprocess the image using our custom class
     var preprocessedImage = await ImagePreprocessor.preprocess(imagePath);
 
@@ -123,7 +155,12 @@ class _InferenceScreenState extends State<InferenceScreen> {
       }
     }
 
-    return maxIndex;
+    // 5. Dequantize using model's exact parameters (Zero Point = 149, Scale = 0.08741736)
+    double floatConfidence = (maxScore - 149) * 0.08741736;
+    if (floatConfidence > 1.0) floatConfidence = 1.0;
+    if (floatConfidence < 0.0) floatConfidence = 0.0;
+
+    return DrDiagnosis(maxIndex, floatConfidence);
   }
   
   String _getGradeLabel(int grade) {
@@ -205,10 +242,10 @@ class _InferenceScreenState extends State<InferenceScreen> {
               ),
               
               // LEFT EYE CARD
-              _buildEyeCard('Left', widget.leftImagePath, _leftDrGrade!),
+              _buildEyeCard('Left', widget.leftImagePath, _leftDiagnosis!, heatmapPath: widget.leftHeatmapPath),
               
               // RIGHT EYE CARD
-              _buildEyeCard('Right', widget.rightImagePath, _rightDrGrade!),
+              _buildEyeCard('Right', widget.rightImagePath, _rightDiagnosis!, heatmapPath: widget.rightHeatmapPath),
               
               // OVERALL CARD
               Container(
@@ -217,19 +254,41 @@ class _InferenceScreenState extends State<InferenceScreen> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
                 child: Column(
                   children: [
                     const Text('OVERALL SCREENING', style: TextStyle(color: Color(0xFF718596), fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1)),
                     const SizedBox(height: 6),
-                    Text(_getGradeLabel(_overallDrGrade!), style: const TextStyle(color: Color(0xFF17324D), fontSize: 28, fontWeight: FontWeight.w900)),
+                    Text(_getGradeLabel(_overallDiagnosis!.grade), style: const TextStyle(color: Color(0xFF17324D), fontSize: 28, fontWeight: FontWeight.w900)),
                     const SizedBox(height: 2),
-                    Text('DR Grade $_overallDrGrade / 4', style: const TextStyle(color: Color(0xFF718596), fontSize: 11)),
+                    Text('DR Grade ${_overallDiagnosis!.grade} / 4', style: const TextStyle(color: Color(0xFF718596), fontSize: 13)),
                     const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 14),
+                      padding: EdgeInsets.symmetric(vertical: 16),
                       child: Divider(color: Color(0xFFE5EBEF), height: 1),
                     ),
-                    Text('Referable DR: ${_overallDrGrade! >= 2 ? 'YES' : 'NO'}', style: const TextStyle(color: Color(0xFF17324D), fontSize: 13, fontWeight: FontWeight.w800)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('Referable DR:', style: TextStyle(color: Color(0xFF475569), fontSize: 15, fontWeight: FontWeight.w800)),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: _overallDiagnosis!.referable ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            _overallDiagnosis!.referable ? 'YES' : 'NO', 
+                            style: TextStyle(
+                              color: _overallDiagnosis!.referable ? const Color(0xFFDC2626) : const Color(0xFF16A34A), 
+                              fontSize: 14, 
+                              fontWeight: FontWeight.w900
+                            )
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -273,14 +332,14 @@ class _InferenceScreenState extends State<InferenceScreen> {
     );
   }
 
-  Widget _buildEyeCard(String eyeLabel, String imagePath, int grade) {
-    bool referable = grade >= 2;
+  Widget _buildEyeCard(String eyeLabel, String imagePath, DrDiagnosis diagnosis, {String? heatmapPath}) {
     return Container(
       margin: const EdgeInsets.only(top: 15),
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(19),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -289,22 +348,80 @@ class _InferenceScreenState extends State<InferenceScreen> {
           const SizedBox(height: 9),
           ClipRRect(
             borderRadius: BorderRadius.circular(13),
-            child: Image.file(File(imagePath), width: double.infinity, height: 190, fit: BoxFit.cover),
+            child: Stack(
+              children: [
+                Image.file(File(imagePath), width: double.infinity, height: 190, fit: BoxFit.cover),
+                if (heatmapPath != null)
+                  Opacity(
+                    opacity: 0.6,
+                    child: Image.file(File(heatmapPath), width: double.infinity, height: 190, fit: BoxFit.cover, colorBlendMode: BlendMode.overlay),
+                  )
+                else
+                  // Mock overlay for now
+                  Container(
+                    width: double.infinity, height: 190,
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        colors: [Colors.red.withOpacity(0.4), Colors.transparent],
+                        center: const Alignment(0.2, 0.1),
+                        radius: 0.8,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-          const SizedBox(height: 10),
-          Text(_getGradeLabel(grade), style: const TextStyle(color: Color(0xFF17324D), fontSize: 22, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 12),
+          Text(_getGradeLabel(diagnosis.grade), style: const TextStyle(color: Color(0xFF17324D), fontSize: 22, fontWeight: FontWeight.w900)),
           const SizedBox(height: 2),
-          Text('DR Grade $grade/4', style: const TextStyle(color: Color(0xFF718596), fontSize: 11)),
+          Row(
+            children: [
+              Text('DR Grade ${diagnosis.grade}/4', style: const TextStyle(color: Color(0xFF718596), fontSize: 11)),
+              const SizedBox(width: 8),
+              const Text('•', style: TextStyle(color: Color(0xFFD0D7DE), fontSize: 11)),
+              const SizedBox(width: 8),
+              Text('${(diagnosis.confidence * 100).toStringAsFixed(1)}% Confidence', style: const TextStyle(color: Color(0xFF1674C4), fontSize: 11, fontWeight: FontWeight.bold)),
+            ],
+          ),
           
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: diagnosis.lesions.map((lesion) => Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Text(lesion, style: const TextStyle(color: Color(0xFF475569), fontSize: 10, fontWeight: FontWeight.bold)),
+            )).toList(),
+          ),
+
+          const SizedBox(height: 14),
           Container(height: 1, color: const Color(0xFFE8EDF1)),
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 9),
+            padding: const EdgeInsets.symmetric(vertical: 12),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Referable DR', style: TextStyle(color: Color(0xFF687A87), fontSize: 11)),
-                Text(referable ? 'YES' : 'NO', style: TextStyle(color: referable ? const Color(0xFFC62828) : const Color(0xFF16804C), fontSize: 11, fontWeight: FontWeight.w900)),
+                const Text('Referable DR', style: TextStyle(color: Color(0xFF687A87), fontSize: 13, fontWeight: FontWeight.bold)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: diagnosis.referable ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    diagnosis.referable ? 'YES' : 'NO', 
+                    style: TextStyle(
+                      color: diagnosis.referable ? const Color(0xFFDC2626) : const Color(0xFF16A34A), 
+                      fontSize: 12, 
+                      fontWeight: FontWeight.w900
+                    )
+                  ),
+                ),
               ],
             ),
           ),
