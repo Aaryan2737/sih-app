@@ -35,13 +35,14 @@ class ImagePreprocessor {
   }
 }
 
-class DrDiagnosis {
+class InferenceResult {
   final int grade;
   final double confidence;
+  final List<double> rawProbs;
   final bool referable;
   final List<String> lesions;
 
-  DrDiagnosis(this.grade, this.confidence)
+  InferenceResult(this.grade, this.confidence, this.rawProbs)
       : referable = grade >= 2,
         lesions = _inferLesions(grade);
 
@@ -85,9 +86,9 @@ class InferenceScreen extends StatefulWidget {
 
 class _InferenceScreenState extends State<InferenceScreen> {
   bool _isProcessing = true;
-  DrDiagnosis? _leftDiagnosis;
-  DrDiagnosis? _rightDiagnosis;
-  DrDiagnosis? _overallDiagnosis;
+  InferenceResult? _leftDiagnosis;
+  InferenceResult? _rightDiagnosis;
+  InferenceResult? _overallDiagnosis;
   Patient? _patient;
 
   @override
@@ -115,8 +116,8 @@ class _InferenceScreenState extends State<InferenceScreen> {
     } catch (e) {
       debugPrint("Error running TFLite model: $e");
       // Show error in UI instead of mock fallback
-      _leftDiagnosis = DrDiagnosis(0, 0.0);
-      _rightDiagnosis = DrDiagnosis(0, 0.0);
+      _leftDiagnosis = InferenceResult(0, 0.0, []);
+      _rightDiagnosis = InferenceResult(0, 0.0, []);
       _overallDiagnosis = _rightDiagnosis; 
       
       if (mounted) {
@@ -135,12 +136,11 @@ class _InferenceScreenState extends State<InferenceScreen> {
     }
   }
 
-  Future<DrDiagnosis> _runInference(Interpreter interpreter, String imagePath) async {
-    // 1. Strict RGB Pixel Extraction
+  Future<InferenceResult> _runInference(Interpreter interpreter, String imagePath) async {
+    // Strict Preprocessing
     Uint8List flatInputBuffer = await ImagePreprocessor.preprocess(imagePath);
     print('INPUT BUFFER LENGTH: ${flatInputBuffer.length}'); // Must strictly print 150528
 
-    // Convert to [1, 224, 224, 3] to safely pass to tflite_flutter run()
     var input = List.generate(1, (b) => 
       List.generate(224, (y) => 
         List.generate(224, (x) => 
@@ -157,19 +157,16 @@ class _InferenceScreenState extends State<InferenceScreen> {
       }
     }
 
-    // 2. Memory Buffer Isolation
-    // Locally instantiated output buffer to prevent any shared state between eyes
-    // Using standard List<int> instead of Uint8List to prevent TFLite type assignment crashes
-    List<int> outputBuffer = List<int>.filled(5, 0);
-    var output = [outputBuffer];
+    // Memory-Safe Buffers
+    var output = List.generate(1, (i) => Uint8List(5));
 
-    // 3. Run inference synchronously for this isolate
+    // Execution
     interpreter.run(input, output);
     
     // Diagnostic Logging: Raw uint8 output
     print('RAW TFLITE OUTPUT: ${output[0]}');
 
-    // 4. Exact Dequantization Math
+    // Dequantization
     List<double> dequantizedFloats = [];
     for (int i = 0; i < output[0].length; i++) {
       double floatVal = (output[0][i] - 149) * 0.08741736;
@@ -179,34 +176,31 @@ class _InferenceScreenState extends State<InferenceScreen> {
     // Diagnostic Logging: Float32 array
     print('DEQUANTIZED FLOAT32 OUTPUT: $dequantizedFloats');
 
-    // 5. Output Parsing & State Lock
+    // Ordinal Logic (Strictly No Argmax)
     int grade = 0;
-    double cumulativeConfidence = 0.0;
-    int activeThresholds = 0;
-
-    // Deep copy floats to prevent reference issues
-    List<double> finalScores = List<double>.from(dequantizedFloats);
-
-    for (int i = 0; i < finalScores.length; i++) {
-      double prob = 1.0 / (1.0 + exp(-finalScores[i]));
+    List<double> rawProbs = [];
+    for (int i = 0; i < dequantizedFloats.length; i++) {
+      double prob = 1.0 / (1.0 + exp(-dequantizedFloats[i]));
+      rawProbs.add(prob);
       if (prob >= 0.5) {
         grade++;
-        cumulativeConfidence += prob;
-        activeThresholds++;
       }
     }
     
     if (grade > 4) grade = 4;
 
-    double finalConfidence = grade > 0 
-        ? (cumulativeConfidence / activeThresholds)
-        : (1.0 - (1.0 / (1.0 + exp(-finalScores[0]))));
+    // Confidence Score (highest sigmoid probability)
+    double maxProb = 0.0;
+    for (var p in rawProbs) {
+      if (p > maxProb) maxProb = p;
+    }
+    double finalConfidence = maxProb;
     
     if (finalConfidence > 1.0) finalConfidence = 1.0;
     if (finalConfidence < 0.0) finalConfidence = 0.0;
 
-    // Returns a completely fresh DrDiagnosis instance (State Lock)
-    return DrDiagnosis(grade, finalConfidence);
+    // State Isolation
+    return InferenceResult(grade, finalConfidence, List.from(rawProbs));
   }
   
   String _getGradeLabel(int grade) {
@@ -390,7 +384,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
     );
   }
 
-  Widget _buildEyeCard(String eyeLabel, String imagePath, DrDiagnosis diagnosis, {String? heatmapPath, Key? key}) {
+  Widget _buildEyeCard(String eyeLabel, String imagePath, InferenceResult diagnosis, {String? heatmapPath, Key? key}) {
     return Container(
       key: key,
       margin: const EdgeInsets.only(top: 15),
