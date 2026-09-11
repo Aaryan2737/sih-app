@@ -11,6 +11,9 @@ from pytorch_grad_cam import GradCAMPlusPlus
 from pytorch_grad_cam.utils.image import show_cam_on_image
 
 app = FastAPI()
+@app.get("/")
+def health_check():
+    return {"status": "active", "message": "OptiXAI Grad-CAM Server is running"}
 
 # ==========================================
 # 1. Model Initialization
