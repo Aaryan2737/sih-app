@@ -163,8 +163,9 @@ class _InferenceScreenState extends State<InferenceScreen> {
         timestamp: now,
       ));
 
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint("Error running TFLite model: $e");
+      debugPrint("Stack trace: $stackTrace");
       // Show error in UI instead of mock fallback
       _leftDiagnosis = InferenceResult(0, 0.0, []);
       _rightDiagnosis = InferenceResult(0, 0.0, []);
@@ -172,7 +173,11 @@ class _InferenceScreenState extends State<InferenceScreen> {
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('TFLite Error: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('TFLite Error: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 10),
+          ),
         );
       }
       await LocalDatabase().updatePatientDrGrade(widget.patientId, _overallDiagnosis!.grade);
@@ -185,59 +190,67 @@ class _InferenceScreenState extends State<InferenceScreen> {
       interpreter?.close();
     }
 
-    // Fetch Grad-CAM overlays after inference completes
+    // Fetch Grad-CAM overlays AFTER inference — fires regardless of TFLite success/failure
     if (mounted) {
       setState(() {
         isGeneratingXAI = true;
       });
+    }
+    try {
       final leftBytes = await fetchGradCamOverlay(widget.leftImagePath);
       final rightBytes = await fetchGradCamOverlay(widget.rightImagePath);
       if (mounted) {
-        // setState immediately after gradCamBytes assignment
         setState(() {
           _leftGradCam = leftBytes;
           _rightGradCam = rightBytes;
           isGeneratingXAI = false;
         });
       }
+    } catch (e) {
+      debugPrint("GradCAM fetch error: $e");
+      if (mounted) {
+        setState(() {
+          isGeneratingXAI = false;
+        });
+      }
     }
   }
 
-  /// Strict TFLite inference with manual RGB extraction and ordinal dequantization.
+  /// Strict TFLite inference — ZERO List<int>, ZERO reshape, ZERO dynamic types.
+  /// Uses runForMultipleInputs with raw ByteBuffer passthrough.
   /// DO NOT overwrite this implementation.
-  /// Uses ONLY Uint8List — no List<int> anywhere to prevent type crashes.
   Future<InferenceResult> _runInference(Interpreter interpreter, String imagePath) async {
     // ── Step 1: Strict Preprocessing — returns Uint8List(150528) ──
     Uint8List inputBuffer = await ImagePreprocessor.preprocess(imagePath);
-    debugPrint('INPUT BUFFER LENGTH: ${inputBuffer.length}'); // Must strictly print 150528
+    debugPrint('INPUT BUFFER LENGTH: ${inputBuffer.length}'); // Must be 150528
 
-    // ── Step 2: Reshape flat Uint8List into [1, 224, 224, 3] for TFLite ──
-    // The interpreter expects the input tensor shape to match the model.
-    // We pass the raw Uint8List and let TFLite reshape via its internal tensor.
-    final input = inputBuffer.reshape([1, 224, 224, 3]);
+    // ── Step 2: Pass raw bytes directly — NO reshape, NO nested lists ──
+    // runForMultipleInputs takes List<Object> inputs and Map<int, Object> outputs.
+    // Passing ByteBuffer bypasses all Dart type inference entirely.
+    final Uint8List outputBytes = Uint8List(5);
+    final Map<int, Object> outputMap = <int, Object>{0: outputBytes};
 
-    // ── Step 3: Strictly typed output buffer — Uint8List, NOT List<int> ──
-    final List<Uint8List> outputBuffer = List<Uint8List>.generate(1, (i) => Uint8List(5));
+    // ── Step 3: Execute TFLite ──
+    interpreter.runForMultipleInputs([inputBuffer], outputMap);
 
-    // ── Step 4: Execute TFLite ──
-    interpreter.run(input, outputBuffer);
-    
+    // Read output back from the map
+    final Uint8List rawOutput = outputMap[0] as Uint8List;
+
     // Diagnostic Logging: Raw uint8 output
-    debugPrint('RAW TFLITE OUTPUT: ${outputBuffer[0]}');
+    debugPrint('RAW TFLITE OUTPUT: $rawOutput');
 
-    // ── Step 5: Dequantization (Only process the first 4 logits to match nn.Linear(1280, 4)) ──
+    // ── Step 4: Dequantization (first 4 logits → nn.Linear(1280, 4)) ──
     List<double> dequantizedFloats = [];
-    int validLogits = min(4, outputBuffer[0].length);
+    int validLogits = min(4, rawOutput.length);
     for (int i = 0; i < validLogits; i++) {
-      double floatVal = (outputBuffer[0][i] - 149) * 0.08741736;
+      double floatVal = (rawOutput[i] - 149) * 0.08741736;
       dequantizedFloats.add(floatVal);
     }
-    
-    // Diagnostic Logging: Float32 array
+
+    // Diagnostic Logging
     debugPrint('DEQUANTIZED FLOAT32 OUTPUT: $dequantizedFloats');
 
-    // ── Step 6: Ordinal Logic (Strictly No Argmax) ──
-    // Apply Sigmoid then count probabilities >= 0.5 for the DR Grade.
+    // ── Step 5: Ordinal Logic — Sigmoid, count >= 0.5 ──
     int grade = 0;
     List<double> rawProbs = [];
     for (int i = 0; i < dequantizedFloats.length; i++) {
@@ -247,7 +260,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
         grade++;
       }
     }
-    
+
     if (grade > 4) grade = 4;
 
     // Confidence Score (highest sigmoid probability)
@@ -255,12 +268,8 @@ class _InferenceScreenState extends State<InferenceScreen> {
     for (var p in rawProbs) {
       if (p > maxProb) maxProb = p;
     }
-    double finalConfidence = maxProb;
-    
-    if (finalConfidence > 1.0) finalConfidence = 1.0;
-    if (finalConfidence < 0.0) finalConfidence = 0.0;
+    double finalConfidence = maxProb.clamp(0.0, 1.0);
 
-    // State Isolation
     return InferenceResult(grade, finalConfidence, List<double>.from(rawProbs));
   }
   
