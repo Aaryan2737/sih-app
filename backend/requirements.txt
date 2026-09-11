@@ -7,3 +7,4 @@ uvicorn
 python-multipart
 Pillow
 grad-cam
+timm

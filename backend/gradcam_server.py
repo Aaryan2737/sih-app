@@ -15,33 +15,11 @@ app = FastAPI()
 # ==========================================
 # 1. Model Initialization
 # ==========================================
-# Mock class for MobileNetV4Ordinal. 
-# REPLACE this with your actual MobileNetV4 architecture from your training script.
-class MobileNetV4Ordinal(nn.Module):
-    def __init__(self):
-        super(MobileNetV4Ordinal, self).__init__()
-        # This is a placeholder structure representing MobileNet.
-        self.features = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(inplace=True),
-            # ... intermediate blocks ...
-            nn.Conv2d(32, 1280, kernel_size=1, stride=1, padding=0), # Final Conv Layer
-            nn.ReLU(inplace=True)
-        )
-        self.classifier = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-            nn.Linear(1280, 4) # 4 Ordinal cumulative logits
-        )
-
-    def forward(self, x):
-        x = self.features(x)
-        x = self.classifier(x)
-        return x
+import timm
 
 # Initialize device and model
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = MobileNetV4Ordinal().to(device)
+model = timm.create_model('mobilenetv4_conv_small.e200_r224', pretrained=False, num_classes=4).to(device)
 
 try:
     # Load your best_weights.pth state dictionary
@@ -57,7 +35,7 @@ model.eval()
 # ==========================================
 # Target the final convolutional layer of MobileNetV4.
 # Depending on your specific model definition (e.g., from `timm`), this path might be `model.features[-1]` or `model.conv_head`.
-target_layers = [model.features[-2]] 
+target_layers = [model.conv_head]
 
 # Initialize Grad-CAM++
 cam = GradCAMPlusPlus(model=model, target_layers=target_layers)
