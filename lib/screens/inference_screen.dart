@@ -158,7 +158,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
     }
 
     // Memory-Safe Buffers
-    var output = List.generate(1, (i) => Uint8List(5));
+    var output = List.generate(1, (i) => List<int>.filled(5, 0));
 
     // Execution
     interpreter.run(input, output);
