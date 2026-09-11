@@ -93,7 +93,7 @@ class InferenceScreen extends StatefulWidget {
 
 class _InferenceScreenState extends State<InferenceScreen> {
   bool _isProcessing = true;
-  bool _isFetchingGradCam = true;
+  bool isGeneratingXAI = false;
   Uint8List? _leftGradCam;
   Uint8List? _rightGradCam;
   InferenceResult? _leftDiagnosis;
@@ -107,13 +107,17 @@ class _InferenceScreenState extends State<InferenceScreen> {
     _loadPatientAndRun();
   }
 
-  Future<Uint8List?> _generateGradCam(String imagePath) async {
+  Future<Uint8List?> fetchGradCamOverlay(String imagePath) async {
+    // Swap 10.0.2.2 to your Wi-Fi IPv4 address (e.g., 192.168.X.X) for physical devices
+    String baseUrl = 'http://10.0.2.2:8000/generate_gradcam'; 
     try {
-      var request = http.MultipartRequest('POST', Uri.parse('http://10.0.2.2:8000/generate_gradcam'));
+      var request = http.MultipartRequest('POST', Uri.parse(baseUrl));
       request.files.add(await http.MultipartFile.fromPath('file', imagePath));
       var response = await request.send();
       if (response.statusCode == 200) {
         return await response.stream.toBytes();
+      } else {
+        debugPrint("GradCAM API Error: Status Code ${response.statusCode}");
       }
     } catch (e) {
       debugPrint("GradCAM Error: $e");
@@ -160,13 +164,16 @@ class _InferenceScreenState extends State<InferenceScreen> {
     }
 
     if (mounted) {
-      final leftBytes = await _generateGradCam(widget.leftImagePath);
-      final rightBytes = await _generateGradCam(widget.rightImagePath);
+      setState(() {
+        isGeneratingXAI = true;
+      });
+      final leftBytes = await fetchGradCamOverlay(widget.leftImagePath);
+      final rightBytes = await fetchGradCamOverlay(widget.rightImagePath);
       if (mounted) {
         setState(() {
           _leftGradCam = leftBytes;
           _rightGradCam = rightBytes;
-          _isFetchingGradCam = false;
+          isGeneratingXAI = false;
         });
       }
     }
@@ -446,7 +453,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
                     opacity: 0.6,
                     child: Image.memory(gradCamBytes, width: double.infinity, height: 190, fit: BoxFit.cover, colorBlendMode: BlendMode.overlay),
                   )
-                else if (_isFetchingGradCam)
+                else if (isGeneratingXAI)
                   Container(
                     width: double.infinity, height: 190,
                     color: Colors.black.withOpacity(0.3),
