@@ -3,6 +3,7 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img;
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 import '../data/local_database.dart';
 
 class ImagePreprocessor {
