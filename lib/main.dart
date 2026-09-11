@@ -354,7 +354,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Column(
                   children: [
                     _buildActionButton('+', 'New Patient', 'Register a patient', () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const NewPatientScreen())).then((_) => _loadDashboard());
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const NewPatientScreen())).then((patientId) {
+                        _loadDashboard();
+                        if (patientId != null && patientId is String && context.mounted) {
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => CameraAlignmentScreen(patientId: patientId))).then((_) => _loadDashboard());
+                        }
+                      });
                     }),
                     const Divider(color: AppColors.border, height: 1),
                     _buildActionButton('◉', 'Start Screening', 'Capture fundus image', () async {

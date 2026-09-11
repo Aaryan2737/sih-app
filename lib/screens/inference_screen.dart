@@ -6,6 +6,7 @@ import 'package:image/image.dart' as img;
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:async';
 import '../data/local_database.dart';
 
 class ImagePreprocessor {
@@ -25,7 +26,7 @@ class ImagePreprocessor {
     // Resize to 224x224
     img.Image resizedImage = img.copyResize(croppedImage, width: 224, height: 224);
 
-    // Strict RGB Pixel Extraction
+    // Strict RGB Pixel Extraction — flat Uint8List(150528)
     var inputBuffer = Uint8List(1 * 224 * 224 * 3);
     int bufferIndex = 0;
 
@@ -108,17 +109,21 @@ class _InferenceScreenState extends State<InferenceScreen> {
     _loadPatientAndRun();
   }
 
+  /// Fetch Grad-CAM overlay from Render backend with 90-second timeout
   Future<Uint8List?> fetchGradCamOverlay(String imagePath) async {
-    String baseUrl = dotenv.env['GRADCAM_URL'] ?? 'http://10.0.2.2:8000/generate_gradcam'; 
+    String baseUrl = dotenv.env['GRADCAM_URL'] ?? 'https://sih-app-0yq3.onrender.com/generate_gradcam'; 
     try {
       var request = http.MultipartRequest('POST', Uri.parse(baseUrl));
       request.files.add(await http.MultipartFile.fromPath('file', imagePath));
-      var response = await request.send();
+      // 90-second timeout to account for Render free-tier cold starts
+      var response = await request.send().timeout(const Duration(seconds: 90));
       if (response.statusCode == 200) {
         return await response.stream.toBytes();
       } else {
         debugPrint("GradCAM API Error: Status Code ${response.statusCode}");
       }
+    } on TimeoutException {
+      debugPrint("GradCAM Error: Request timed out after 90 seconds");
     } catch (e) {
       debugPrint("GradCAM Error: $e");
     }
@@ -138,8 +143,25 @@ class _InferenceScreenState extends State<InferenceScreen> {
       // The overall grade is the highest of both eyes
       _overallDiagnosis = (_leftDiagnosis!.grade > _rightDiagnosis!.grade) ? _leftDiagnosis : _rightDiagnosis;
       
-      // Update patient's dr_grade in SQLite
+      // Update patient's dr_grade in SQLite (backward compat)
       await LocalDatabase().updatePatientDrGrade(widget.patientId, _overallDiagnosis!.grade);
+
+      // Insert per-eye screening results with explicit patient_id FK
+      final now = DateTime.now().toIso8601String();
+      await LocalDatabase().insertScreeningResult(ScreeningResult(
+        patientId: widget.patientId,
+        eye: 'left',
+        drGrade: _leftDiagnosis!.grade,
+        confidence: _leftDiagnosis!.confidence,
+        timestamp: now,
+      ));
+      await LocalDatabase().insertScreeningResult(ScreeningResult(
+        patientId: widget.patientId,
+        eye: 'right',
+        drGrade: _rightDiagnosis!.grade,
+        confidence: _rightDiagnosis!.confidence,
+        timestamp: now,
+      ));
 
     } catch (e) {
       debugPrint("Error running TFLite model: $e");
@@ -163,6 +185,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
       interpreter?.close();
     }
 
+    // Fetch Grad-CAM overlays after inference completes
     if (mounted) {
       setState(() {
         isGeneratingXAI = true;
@@ -170,6 +193,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
       final leftBytes = await fetchGradCamOverlay(widget.leftImagePath);
       final rightBytes = await fetchGradCamOverlay(widget.rightImagePath);
       if (mounted) {
+        // setState immediately after gradCamBytes assignment
         setState(() {
           _leftGradCam = leftBytes;
           _rightGradCam = rightBytes;
@@ -179,37 +203,43 @@ class _InferenceScreenState extends State<InferenceScreen> {
     }
   }
 
+  /// Strict TFLite inference with manual RGB extraction and ordinal dequantization.
+  /// DO NOT overwrite this implementation.
   Future<InferenceResult> _runInference(Interpreter interpreter, String imagePath) async {
-    // Strict Preprocessing
+    // ── Step 1: Strict Preprocessing ──
     Uint8List flatInputBuffer = await ImagePreprocessor.preprocess(imagePath);
-    print('INPUT BUFFER LENGTH: ${flatInputBuffer.length}'); // Must strictly print 150528
+    debugPrint('INPUT BUFFER LENGTH: ${flatInputBuffer.length}'); // Must strictly print 150528
 
-    var input = List.generate(1, (b) => 
-      List.generate(224, (y) => 
-        List.generate(224, (x) => 
-          List.filled(3, 0)
-        )
-      )
+    // ── Step 2: Build strictly-typed 4D input tensor [1, 224, 224, 3] ──
+    // Explicit List<List<List<List<int>>>> construction to prevent type crashes.
+    final List<List<List<List<int>>>> input = List.generate(
+      1,
+      (_) => List.generate(
+        224,
+        (y) => List.generate(
+          224,
+          (x) {
+            final int baseIdx = (y * 224 + x) * 3;
+            return <int>[
+              flatInputBuffer[baseIdx],
+              flatInputBuffer[baseIdx + 1],
+              flatInputBuffer[baseIdx + 2],
+            ];
+          },
+        ),
+      ),
     );
-    int idx = 0;
-    for (int y = 0; y < 224; y++) {
-      for (int x = 0; x < 224; x++) {
-        input[0][y][x][0] = flatInputBuffer[idx++];
-        input[0][y][x][1] = flatInputBuffer[idx++];
-        input[0][y][x][2] = flatInputBuffer[idx++];
-      }
-    }
 
-    // Memory-Safe Buffers
+    // ── Step 3: Memory-safe output buffer ──
     var output = List.generate(1, (i) => Uint8List(5));
 
-    // Execution
+    // ── Step 4: Execute TFLite ──
     interpreter.run(input, output);
     
     // Diagnostic Logging: Raw uint8 output
-    print('RAW TFLITE OUTPUT: ${output[0]}');
+    debugPrint('RAW TFLITE OUTPUT: ${output[0]}');
 
-    // Dequantization (Only process the first 4 logits to match nn.Linear(1280, 4))
+    // ── Step 5: Dequantization (Only process the first 4 logits to match nn.Linear(1280, 4)) ──
     List<double> dequantizedFloats = [];
     int validLogits = min(4, output[0].length);
     for (int i = 0; i < validLogits; i++) {
@@ -218,9 +248,10 @@ class _InferenceScreenState extends State<InferenceScreen> {
     }
     
     // Diagnostic Logging: Float32 array
-    print('DEQUANTIZED FLOAT32 OUTPUT: $dequantizedFloats');
+    debugPrint('DEQUANTIZED FLOAT32 OUTPUT: $dequantizedFloats');
 
-    // Ordinal Logic (Strictly No Argmax)
+    // ── Step 6: Ordinal Logic (Strictly No Argmax) ──
+    // Apply Sigmoid then count probabilities >= 0.5 for the DR Grade.
     int grade = 0;
     List<double> rawProbs = [];
     for (int i = 0; i < dequantizedFloats.length; i++) {
@@ -448,15 +479,15 @@ class _InferenceScreenState extends State<InferenceScreen> {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // Base Layer
+                // Bottom Layer: Base fundus image
                 Image.file(File(imagePath), width: double.infinity, height: 190, fit: BoxFit.cover),
                 
-                // XAI Overlay
+                // Top Layer: Grad-CAM XAI overlay at 0.6 opacity
                 if (gradCamBytes != null)
                   Positioned.fill(
                     child: Opacity(
-                      opacity: 0.65,
-                      child: Image.memory(gradCamBytes, fit: BoxFit.cover, colorBlendMode: BlendMode.multiply),
+                      opacity: 0.6,
+                      child: Image.memory(gradCamBytes, fit: BoxFit.cover),
                     ),
                   ),
                   
@@ -464,7 +495,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
                 if (isGeneratingXAI && gradCamBytes == null)
                   Positioned.fill(
                     child: Container(
-                      color: Colors.black.withOpacity(0.3),
+                      color: Colors.black.withValues(alpha: 0.3),
                       child: const Center(child: CircularProgressIndicator(color: Colors.white)),
                     ),
                   ),

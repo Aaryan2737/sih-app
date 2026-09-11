@@ -63,6 +63,45 @@ class Patient {
   }
 }
 
+class ScreeningResult {
+  final int? rowId;
+  final String patientId;
+  final String eye;
+  final int drGrade;
+  final double confidence;
+  final String timestamp;
+
+  ScreeningResult({
+    this.rowId,
+    required this.patientId,
+    required this.eye,
+    required this.drGrade,
+    required this.confidence,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'patient_id': patientId,
+      'eye': eye,
+      'dr_grade': drGrade,
+      'confidence': confidence,
+      'timestamp': timestamp,
+    };
+  }
+
+  factory ScreeningResult.fromMap(Map<String, dynamic> map) {
+    return ScreeningResult(
+      rowId: map['id'],
+      patientId: map['patient_id'],
+      eye: map['eye'],
+      drGrade: map['dr_grade'],
+      confidence: (map['confidence'] as num).toDouble(),
+      timestamp: map['timestamp'],
+    );
+  }
+}
+
 class LocalDatabase {
   static final LocalDatabase _instance = LocalDatabase._internal();
   factory LocalDatabase() => _instance;
@@ -76,28 +115,48 @@ class LocalDatabase {
     return _database!;
   }
 
+  static const String _createPatientsTable = '''
+    CREATE TABLE patients (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      age INTEGER,
+      gender TEXT,
+      diabetes_details TEXT,
+      phone TEXT,
+      createdAt TEXT,
+      syncStatus TEXT,
+      left_eye_image_path TEXT,
+      right_eye_image_path TEXT,
+      dr_grade INTEGER
+    )
+  ''';
+
+  static const String _createScreeningResultsTable = '''
+    CREATE TABLE screening_results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id TEXT NOT NULL,
+      eye TEXT NOT NULL,
+      dr_grade INTEGER NOT NULL,
+      confidence REAL NOT NULL,
+      timestamp TEXT NOT NULL,
+      FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+    )
+  ''';
+
   Future<Database> initDB() async {
     Directory documentsDirectory = await getApplicationDocumentsDirectory();
     String path = join(documentsDirectory.path, 'optixai.db');
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE patients (
-            id TEXT PRIMARY KEY,
-            name TEXT,
-            age INTEGER,
-            gender TEXT,
-            diabetes_details TEXT,
-            phone TEXT,
-            createdAt TEXT,
-            syncStatus TEXT,
-            left_eye_image_path TEXT,
-            right_eye_image_path TEXT,
-            dr_grade INTEGER
-          )
-        ''');
+        await db.execute(_createPatientsTable);
+        await db.execute(_createScreeningResultsTable);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(_createScreeningResultsTable);
+        }
       },
     );
   }
@@ -167,5 +226,23 @@ class LocalDatabase {
       return Patient.fromMap(maps.first);
     }
     return null;
+  }
+
+  /// Insert a screening result with explicit patient_id FK
+  Future<void> insertScreeningResult(ScreeningResult result) async {
+    final db = await database;
+    await db.insert('screening_results', result.toMap());
+  }
+
+  /// Get all screening results for a specific patient
+  Future<List<ScreeningResult>> getScreeningResults(String patientId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'screening_results',
+      where: 'patient_id = ?',
+      whereArgs: [patientId],
+      orderBy: 'timestamp DESC',
+    );
+    return List.generate(maps.length, (i) => ScreeningResult.fromMap(maps[i]));
   }
 }

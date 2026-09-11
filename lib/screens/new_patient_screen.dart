@@ -17,7 +17,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
   final TextEditingController _stateController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
 
-  Future<void> _handleSave() async {
+  Future<void> _handleSave({bool startScreening = false}) async {
     final name = _nameController.text.trim();
     final ageText = _ageController.text.trim();
     final gender = _genderController.text.trim();
@@ -46,7 +46,18 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
     await LocalDatabase().insertPatient(patient);
 
     if (!mounted) return;
-    Navigator.of(context).pop();
+
+    if (startScreening) {
+      // Navigate directly to camera flow with the new patient's ID
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => CameraAlignmentScreen(patientId: patientId),
+        ),
+      );
+    } else {
+      // Return patientId to the caller so the dashboard can link to screening
+      Navigator.of(context).pop(patientId);
+    }
   }
 
   @override
@@ -132,9 +143,9 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
               ),
               const SizedBox(height: 22),
               ElevatedButton(
-                onPressed: _handleSave,
+                onPressed: () => _handleSave(startScreening: true),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF208AEF),
+                  backgroundColor: const Color(0xFF0f766e),
                   padding: const EdgeInsets.symmetric(vertical: 15),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -142,9 +153,28 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   elevation: 0,
                 ),
                 child: const Text(
-                  'Register Patient',
+                  'Register & Start Screening',
                   style: TextStyle(
                     color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton(
+                onPressed: () => _handleSave(startScreening: false),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  side: const BorderSide(color: Color(0xFF208AEF)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Register Only',
+                  style: TextStyle(
+                    color: Color(0xFF208AEF),
                     fontWeight: FontWeight.w900,
                     fontSize: 16,
                   ),

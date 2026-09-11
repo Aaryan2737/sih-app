@@ -38,14 +38,18 @@ jobs:
           [ -z "$SUPABASE_ANON_KEY" ] && SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpvdWRkaWh4d2hqb2h6dnBfZmdkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcxNTE5MjIsImV4cCI6MjA3MjcyNzkyMn0.jUoA6vXGq3W-h9pB_gXGkUoI7gM8s6U7s2p8e9-s-e4"
           [ -z "$GRADCAM_URL" ] && GRADCAM_URL="https://sih-app-0yq3.onrender.com/generate_gradcam"
 
-          cat <<EOF > .env
-          SUPABASE_URL=$SUPABASE_URL
-          SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
-          GRADCAM_URL=$GRADCAM_URL
-          EOF
+          echo "SUPABASE_URL=$SUPABASE_URL" > .env
+          echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
+          echo "GRADCAM_URL=$GRADCAM_URL" >> .env
+
+          echo "--- .env created ---"
+          cat .env
 
       - name: Install Dependencies
         run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
 
       - name: Build APK
         run: flutter build apk --release
@@ -55,3 +59,4 @@ jobs:
         with:
           name: optixai-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
