@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'core/constants.dart';
 import 'data/local_database.dart';
 import 'services/supabase_sync_service.dart';
@@ -60,17 +62,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _pendingSync = 0;
   List<Patient> _recentScreenings = [];
 
+  late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
+
   @override
   void initState() {
     super.initState();
     SupabaseSyncService().startAutoSync();
     _loadDashboard();
+    _checkInitialConnectivity();
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen(_updateConnectionStatus);
   }
 
   @override
   void dispose() {
     SupabaseSyncService().stopAutoSync();
+    _connectivitySubscription.cancel();
     super.dispose();
+  }
+
+  Future<void> _checkInitialConnectivity() async {
+    final results = await Connectivity().checkConnectivity();
+    _updateConnectionStatus(results);
+  }
+
+  void _updateConnectionStatus(List<ConnectivityResult> results) {
+    if (mounted) {
+      setState(() {
+        _connectionStatus = results.any((r) => r != ConnectivityResult.none) ? 'online' : 'offline';
+      });
+    }
   }
 
   Future<void> _loadDashboard() async {
@@ -160,13 +180,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                     decoration: BoxDecoration(
-                      color: AppColors.offlineBadgeBg,
+                      color: _connectionStatus == 'online' ? const Color(0xFFdcfce7) : AppColors.offlineBadgeBg,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Text('● ', style: TextStyle(fontSize: 11, color: AppColors.offlineBadgeText)),
-                        Text('Offline', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.offlineBadgeText)),
+                        Text('● ', style: TextStyle(fontSize: 11, color: _connectionStatus == 'online' ? const Color(0xFF166534) : AppColors.offlineBadgeText)),
+                        Text(_connectionStatus == 'online' ? 'Online' : 'Offline', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _connectionStatus == 'online' ? const Color(0xFF166534) : AppColors.offlineBadgeText)),
                       ],
                     ),
                   ),
@@ -175,35 +195,68 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(height: 20),
 
               // OFFLINE CARD
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.offlineCardBg,
-                  border: Border.all(color: AppColors.offlineCardBorder),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 42, height: 42,
-                      decoration: BoxDecoration(color: AppColors.offlineIconBg, borderRadius: BorderRadius.circular(21)),
-                      child: const Center(child: Text('⌁', style: TextStyle(color: AppColors.offlineIconText, fontSize: 24))),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Working Offline', style: TextStyle(color: Color(0xFF9f1239), fontSize: 15, fontWeight: FontWeight.w800)),
-                          SizedBox(height: 4),
-                          Text('Patient records and screening data will remain on this device until internet connectivity returns.', style: TextStyle(color: Color(0xFF881337), fontSize: 12, height: 1.5)),
-                        ],
+              if (_connectionStatus == 'offline')
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.offlineCardBg,
+                    border: Border.all(color: AppColors.offlineCardBorder),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42, height: 42,
+                        decoration: BoxDecoration(color: AppColors.offlineIconBg, borderRadius: BorderRadius.circular(21)),
+                        child: const Center(child: Text('⌁', style: TextStyle(color: AppColors.offlineIconText, fontSize: 24))),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Working Offline', style: TextStyle(color: Color(0xFF9f1239), fontSize: 15, fontWeight: FontWeight.w800)),
+                            SizedBox(height: 4),
+                            Text('Patient records and screening data will remain on this device until internet connectivity returns.', style: TextStyle(color: Color(0xFF881337), fontSize: 12, height: 1.5)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
+                
+              if (_connectionStatus == 'online' && _pendingSync > 0)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFdcfce7),
+                    border: Border.all(color: const Color(0xFFbbf7d0)),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42, height: 42,
+                        decoration: BoxDecoration(color: const Color(0xFF22c55e), borderRadius: BorderRadius.circular(21)),
+                        child: const Center(child: Text('✓', style: TextStyle(color: Colors.white, fontSize: 24))),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Connection Restored', style: TextStyle(color: Color(0xFF166534), fontSize: 15, fontWeight: FontWeight.w800)),
+                            SizedBox(height: 4),
+                            Text('Pending records can be synchronized when the backend is available.', style: TextStyle(color: Color(0xFF15803d), fontSize: 12, height: 1.5)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                
+              if (_connectionStatus == 'offline' || (_connectionStatus == 'online' && _pendingSync > 0))
+                const SizedBox(height: 20),
 
               // TODAY'S SCREENING
               const Text("Today's Screening", style: TextStyle(color: AppColors.primaryText, fontSize: 19, fontWeight: FontWeight.w800)),
@@ -266,10 +319,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('Network', style: TextStyle(color: AppColors.secondaryText, fontSize: 13)),
-                        const Text('Offline', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppColors.offlineBadgeText)),
+                        Text(_connectionStatus == 'online' ? 'Connected' : 'Offline', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: _connectionStatus == 'online' ? AppColors.brandTeal : AppColors.offlineBadgeText)),
                       ],
                     ),
-                    if (_pendingSync > 0) ...[
+                    if (_connectionStatus == 'online' && _pendingSync > 0) ...[
                       const SizedBox(height: 15),
                       ElevatedButton(
                         onPressed: _syncData,
