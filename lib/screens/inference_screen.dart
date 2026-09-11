@@ -158,20 +158,21 @@ class _InferenceScreenState extends State<InferenceScreen> {
     }
 
     // 2. Memory Buffer Isolation
-    // Locally instantiated Uint8List(5) to prevent any shared state between eyes
-    Uint8List outputBuffer = Uint8List(5);
+    // Locally instantiated output buffer to prevent any shared state between eyes
+    // Using standard List<int> instead of Uint8List to prevent TFLite type assignment crashes
+    List<int> outputBuffer = List<int>.filled(5, 0);
     var output = [outputBuffer];
 
     // 3. Run inference synchronously for this isolate
     interpreter.run(input, output);
     
     // Diagnostic Logging: Raw uint8 output
-    print('RAW TFLITE OUTPUT: $outputBuffer');
+    print('RAW TFLITE OUTPUT: ${output[0]}');
 
     // 4. Exact Dequantization Math
     List<double> dequantizedFloats = [];
-    for (int i = 0; i < outputBuffer.length; i++) {
-      double floatVal = (outputBuffer[i] - 149) * 0.08741736;
+    for (int i = 0; i < output[0].length; i++) {
+      double floatVal = (output[0][i] - 149) * 0.08741736;
       dequantizedFloats.add(floatVal);
     }
     
