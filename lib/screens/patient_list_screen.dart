@@ -21,7 +21,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
   }
 
   Future<void> _loadPatients() async {
-    final patients = await LocalDatabase().getPatients();
+    final patients = await LocalDatabase().getAllPatients();
     if (!mounted) return;
     setState(() {
       _patients = patients;
