@@ -1,8 +1,9 @@
 import io
 import torch
 import torch.nn as nn
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import Response
+import traceback
 from PIL import Image
 import numpy as np
 from torchvision import transforms
@@ -73,33 +74,37 @@ preprocess = transforms.Compose([
 # ==========================================
 @app.post("/generate_gradcam")
 async def generate_gradcam(file: UploadFile = File(...)):
-    # Read the raw uploaded fundus image
-    image_bytes = await file.read()
-    img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-    
-    # Preprocess image into tensor
-    input_tensor = preprocess(img).unsqueeze(0).to(device)
-    
-    # Calculate original RGB image mapped to [0, 1] for blending
-    img_resized = img.resize((224, 224))
-    rgb_img = np.float32(img_resized) / 255
-    
-    # Run GradCAMPlusPlus
-    # Note: targets=None automatically targets the highest scoring logit
-    grayscale_cam = cam(input_tensor=input_tensor, targets=None)
-    grayscale_cam = grayscale_cam[0, :]
-    
-    # Blend using show_cam_on_image to overlay the heatmap
-    cam_image = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
-    
-    # Convert back to PIL Image and bytes
-    final_image = Image.fromarray(cam_image)
-    img_byte_arr = io.BytesIO()
-    final_image.save(img_byte_arr, format='JPEG', quality=95)
-    img_byte_arr.seek(0)
-    
-    # Return the blended image file directly in the HTTP response
-    return Response(content=img_byte_arr.getvalue(), media_type="image/jpeg")
+    try:
+        # Read the raw uploaded fundus image
+        image_bytes = await file.read()
+        img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+        
+        # Preprocess image into tensor
+        input_tensor = preprocess(img).unsqueeze(0).to(device)
+        
+        # Calculate original RGB image mapped to [0, 1] for blending
+        img_resized = img.resize((224, 224))
+        rgb_img = np.float32(img_resized) / 255
+        
+        # Run GradCAMPlusPlus
+        # Note: targets=None automatically targets the highest scoring logit
+        grayscale_cam = cam(input_tensor=input_tensor, targets=None)
+        grayscale_cam = grayscale_cam[0, :]
+        
+        # Blend using show_cam_on_image to overlay the heatmap
+        cam_image = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
+        
+        # Convert back to PIL Image and bytes
+        final_image = Image.fromarray(cam_image)
+        img_byte_arr = io.BytesIO()
+        final_image.save(img_byte_arr, format='JPEG', quality=95)
+        img_byte_arr.seek(0)
+        
+        # Return the blended image file directly in the HTTP response
+        return Response(content=img_byte_arr.getvalue(), media_type="image/jpeg")
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
