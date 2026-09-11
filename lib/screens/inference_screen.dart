@@ -201,7 +201,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
     }
 
     // Memory-Safe Buffers
-    var output = List.generate(1, (i) => List<int>.filled(5, 0));
+    var output = List.generate(1, (i) => Uint8List(5));
 
     // Execution
     interpreter.run(input, output);
@@ -209,9 +209,10 @@ class _InferenceScreenState extends State<InferenceScreen> {
     // Diagnostic Logging: Raw uint8 output
     print('RAW TFLITE OUTPUT: ${output[0]}');
 
-    // Dequantization
+    // Dequantization (Only process the first 4 logits to match nn.Linear(1280, 4))
     List<double> dequantizedFloats = [];
-    for (int i = 0; i < output[0].length; i++) {
+    int validLogits = min(4, output[0].length);
+    for (int i = 0; i < validLogits; i++) {
       double floatVal = (output[0][i] - 149) * 0.08741736;
       dequantizedFloats.add(floatVal);
     }
