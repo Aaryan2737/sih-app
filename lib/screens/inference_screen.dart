@@ -7,8 +7,8 @@ import '../data/local_database.dart';
 
 class ImagePreprocessor {
   /// Crops and resizes the given image to 224x224 and returns the pixel data
-  /// as a 3D list `[224][224][3]` suitable for NHWC input of type uint8.
-  static Future<List<List<List<int>>>> preprocess(String imagePath) async {
+  /// as a completely fresh Uint8List(1 * 224 * 224 * 3) to prevent RGBA pollution.
+  static Future<Uint8List> preprocess(String imagePath) async {
     final imageBytes = await File(imagePath).readAsBytes();
     img.Image? originalImage = img.decodeImage(imageBytes);
     if (originalImage == null) throw Exception("Failed to decode image");
@@ -16,25 +16,21 @@ class ImagePreprocessor {
     // Crop and resize to 224x224
     img.Image resizedImage = img.copyResizeCropSquare(originalImage, size: 224);
 
-    // Convert to NHWC [224, 224, 3] of type uint8
-    var input = List.generate(
-      224,
-      (y) => List.generate(
-        224,
-        (x) => List.filled(3, 0),
-      ),
-    );
+    // Strict RGB Pixel Extraction
+    var inputBuffer = Uint8List(1 * 224 * 224 * 3);
+    int bufferIndex = 0;
 
     for (int y = 0; y < 224; y++) {
       for (int x = 0; x < 224; x++) {
         img.Pixel pixel = resizedImage.getPixel(x, y);
-        input[y][x][0] = pixel.r.toInt();
-        input[y][x][1] = pixel.g.toInt();
-        input[y][x][2] = pixel.b.toInt();
+        // Extract ONLY Red, Green, and Blue (discarding Alpha)
+        inputBuffer[bufferIndex++] = pixel.r.toInt();
+        inputBuffer[bufferIndex++] = pixel.g.toInt();
+        inputBuffer[bufferIndex++] = pixel.b.toInt();
       }
     }
 
-    return input;
+    return inputBuffer;
   }
 }
 
@@ -139,37 +135,58 @@ class _InferenceScreenState extends State<InferenceScreen> {
   }
 
   Future<DrDiagnosis> _runInference(Interpreter interpreter, String imagePath) async {
-    // 1. Preprocess the image using our custom class
-    var preprocessedImage = await ImagePreprocessor.preprocess(imagePath);
+    // 1. Strict RGB Pixel Extraction
+    Uint8List flatInputBuffer = await ImagePreprocessor.preprocess(imagePath);
+    print('INPUT BUFFER LENGTH: ${flatInputBuffer.length}'); // Must strictly print 150528
 
-    // Wrap in batch dimension: [1, 224, 224, 3]
-    var input = [preprocessedImage];
+    // Convert to [1, 224, 224, 3] to safely pass to tflite_flutter run()
+    var input = List.generate(1, (b) => 
+      List.generate(224, (y) => 
+        List.generate(224, (x) => 
+          List.filled(3, 0)
+        )
+      )
+    );
+    int idx = 0;
+    for (int y = 0; y < 224; y++) {
+      for (int x = 0; x < 224; x++) {
+        input[0][y][x][0] = flatInputBuffer[idx++];
+        input[0][y][x][1] = flatInputBuffer[idx++];
+        input[0][y][x][2] = flatInputBuffer[idx++];
+      }
+    }
 
-    // 2. Output shape MUST be [1, 5] to match the actual model tensor shape
-    var output = List.generate(1, (i) => List.filled(5, 0));
+    // 2. Memory Buffer Isolation
+    // Locally instantiated Uint8List(5) to prevent any shared state between eyes
+    Uint8List outputBuffer = Uint8List(5);
+    var output = [outputBuffer];
 
-    // 3. Run inference
+    // 3. Run inference synchronously for this isolate
     interpreter.run(input, output);
     
-    // Debug raw output
-    debugPrint('RAW TFLITE OUTPUT: $output');
+    // Diagnostic Logging: Raw uint8 output
+    print('RAW TFLITE OUTPUT: $outputBuffer');
 
-    // 4. Parse Ordinal Logits
-    // STRICT RULE 2: Deep Copy Outputs to prevent TFLite buffer overlap
-    List<int> rawScores = List<int>.from(output[0]);
+    // 4. Exact Dequantization Math
+    List<double> dequantizedFloats = [];
+    for (int i = 0; i < outputBuffer.length; i++) {
+      double floatVal = (outputBuffer[i] - 149) * 0.08741736;
+      dequantizedFloats.add(floatVal);
+    }
+    
+    // Diagnostic Logging: Float32 array
+    print('DEQUANTIZED FLOAT32 OUTPUT: $dequantizedFloats');
+
+    // 5. Output Parsing & State Lock
     int grade = 0;
     double cumulativeConfidence = 0.0;
     int activeThresholds = 0;
 
-    // Loop through all 5 logits (if the model outputs P(>=1) to P(>=5), or P(>=0) to P(>=4))
-    for (int i = 0; i < rawScores.length; i++) {
-      // Dequantize (Zero Point = 149, Scale = 0.08741736)
-      double logit = (rawScores[i] - 149) * 0.08741736;
-      
-      // Apply Sigmoid
-      double prob = 1.0 / (1.0 + exp(-logit));
-      
-      // Sum probabilities crossing 0.5
+    // Deep copy floats to prevent reference issues
+    List<double> finalScores = List<double>.from(dequantizedFloats);
+
+    for (int i = 0; i < finalScores.length; i++) {
+      double prob = 1.0 / (1.0 + exp(-finalScores[i]));
       if (prob >= 0.5) {
         grade++;
         cumulativeConfidence += prob;
@@ -177,18 +194,16 @@ class _InferenceScreenState extends State<InferenceScreen> {
       }
     }
     
-    // If the model outputs 5 logits and all are 1.0, grade might be 5. Cap it at 4.
     if (grade > 4) grade = 4;
 
-    // 5. Calculate final confidence
-    // Average the active threshold probabilities, or default to 1 - first prob if grade is 0
     double finalConfidence = grade > 0 
         ? (cumulativeConfidence / activeThresholds)
-        : (1.0 - (1.0 / (1.0 + exp(-((rawScores[0] - 149) * 0.08741736)))));
+        : (1.0 - (1.0 / (1.0 + exp(-finalScores[0]))));
     
     if (finalConfidence > 1.0) finalConfidence = 1.0;
     if (finalConfidence < 0.0) finalConfidence = 0.0;
 
+    // Returns a completely fresh DrDiagnosis instance (State Lock)
     return DrDiagnosis(grade, finalConfidence);
   }
   
