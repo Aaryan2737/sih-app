@@ -31,7 +31,8 @@ def get_cam_model():
     global model, cam
     if model is None:
         print("Loading model and weights lazily...")
-        model = timm.create_model('mobilenetv4_conv_small.e200_r224', pretrained=False, num_classes=4).to(device)
+        # REMOVE the .e200_r224 tag so timm accepts the base architecture name
+        model = timm.create_model('mobilenetv4_conv_small', pretrained=False, num_classes=4).to(device)
         try:
             model.load_state_dict(torch.load('best_weights.pth', map_location=device))
             print("Loaded best_weights.pth successfully.")
