@@ -356,9 +356,94 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     }),
                     const Divider(color: AppColors.border, height: 1),
                     _buildActionButton('◉', 'Start Screening', 'Capture fundus image', () {}),
+                    const Divider(color: AppColors.border, height: 1),
+                    _buildActionButton('👥', 'Patient Records', 'View registered patients', () {}),
+                    const Divider(color: AppColors.border, height: 1),
+                    _buildActionButton('☷', 'Screening History', 'View previous screenings', () {}),
                   ],
                 ),
               ),
+              const SizedBox(height: 22),
+
+              // RECENT SCREENINGS
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Recent Screenings', style: TextStyle(color: AppColors.primaryText, fontSize: 19, fontWeight: FontWeight.w800)),
+                  TextButton(
+                    onPressed: () {}, 
+                    child: const Text('View All', style: TextStyle(color: AppColors.brandTeal, fontWeight: FontWeight.bold))
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (_recentScreenings.isEmpty)
+                const Text('No recent screenings available.', style: TextStyle(color: AppColors.secondaryText))
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.cardBg,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    children: _recentScreenings.map((patient) {
+                      String gradeText = 'Unknown';
+                      if (patient.drGrade == 0) gradeText = 'Normal';
+                      else if (patient.drGrade == 1) gradeText = 'Mild NPDR';
+                      else if (patient.drGrade == 2) gradeText = 'Moderate NPDR';
+                      else if (patient.drGrade == 3) gradeText = 'Severe NPDR';
+                      else if (patient.drGrade == 4) gradeText = 'Proliferative DR';
+                      
+                      String riskLevel = 'Unknown';
+                      if (patient.drGrade == 0 || patient.drGrade == 1) riskLevel = 'Low';
+                      else if (patient.drGrade == 2 || patient.drGrade == 3) riskLevel = 'Moderate';
+                      else if (patient.drGrade == 4) riskLevel = 'High';
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          border: patient != _recentScreenings.last ? const Border(bottom: BorderSide(color: AppColors.border)) : null,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40, height: 40,
+                              decoration: BoxDecoration(color: const Color(0xFFF0FDF4), borderRadius: BorderRadius.circular(20)),
+                              child: const Center(child: Text('✓', style: TextStyle(color: Color(0xFF16A34A), fontSize: 18))),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(patient.id, style: const TextStyle(color: AppColors.primaryText, fontSize: 13, fontWeight: FontWeight.w900), overflow: TextOverflow.ellipsis),
+                                  const SizedBox(height: 3),
+                                  Text(gradeText, style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+                                ],
+                              ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(riskLevel, style: const TextStyle(color: AppColors.primaryText, fontSize: 13, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 3),
+                                Text(patient.syncStatus == 'synced' ? 'Synced' : 'Pending Sync', 
+                                  style: TextStyle(
+                                    color: patient.syncStatus == 'synced' ? const Color(0xFF16A34A) : const Color(0xFFD97706), 
+                                    fontSize: 10, 
+                                    fontWeight: FontWeight.w900
+                                  )
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
               const SizedBox(height: 22),
 
               // ARCHITECTURE CARD
