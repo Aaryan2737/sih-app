@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img;
@@ -108,8 +109,7 @@ class _InferenceScreenState extends State<InferenceScreen> {
   }
 
   Future<Uint8List?> fetchGradCamOverlay(String imagePath) async {
-    // Swap 10.0.2.2 to your Wi-Fi IPv4 address (e.g., 192.168.X.X) for physical devices
-    String baseUrl = 'http://10.0.2.2:8000/generate_gradcam'; 
+    String baseUrl = dotenv.env['GRADCAM_URL'] ?? 'http://10.0.2.2:8000/generate_gradcam'; 
     try {
       var request = http.MultipartRequest('POST', Uri.parse(baseUrl));
       request.files.add(await http.MultipartFile.fromPath('file', imagePath));
